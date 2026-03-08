@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; }
+  body { background: #090909; display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="400"></canvas>
+<script>
+(() => {
+  const W = 400, SIZE = W * W;
+  const ctx = document.getElementById('c').getContext('2d', { alpha: false });
+
+  // Sin/cos LUTs
+  const LUT = 65536, MASK = LUT - 1, SCALE = LUT / (Math.PI * 2);
+  const sinLUT = new Float32Array(LUT), cosLUT = new Float32Array(LUT);
+  for (let i = 0; i < LUT; i++) {
+    sinLUT[i] = Math.sin(i / LUT * Math.PI * 2);
+    cosLUT[i] = Math.cos(i / LUT * Math.PI * 2);
+  }
+  const lsin = v => sinLUT[((v * SCALE | 0) % LUT + LUT) & MASK];
+  const lcos = v => cosLUT[((v * SCALE | 0) % LUT + LUT) & MASK];
+
+  const imgData = ctx.createImageData(W, W);
+  const buf32 = new Uint32Array(imgData.data.buffer);
+
+  // Pre-fill background
+  buf32.fill(0xFF090909);
+
+  let t = 0, last = performance.now();
+  // Original: PI/45 per frame at 60fps
+  const RATE = (Math.PI / 45) * 60;
+
+  (function draw(now) {
+    requestAnimationFrame(draw);
+    t += RATE * ((now - last) / 1000);
+    last = now;
+
+    // Fade each pixel toward black — this creates the motion glow/trail.
+    // Multiplying RGB by ~0.78 per frame at 120fps ≈ same visual decay as
+    // a hard clear would look at 60fps.
+    for (let j = 0; j < SIZE; j++) {
+      const v = buf32[j] & 0xFF; // all channels equal (greyscale only)
+      // decay toward bg value 9
+      const faded = ((v - 9) * 0.78 + 9) | 0;
+      buf32[j] = 0xFF000000 | (faded * 0x10101); // set R=G=B=faded
+    }
+
+    // Draw points with additive blending — overlapping points accumulate
+    // brightness, recreating the glow at dense/slow-moving regions.
+    for (let i = 20000; i-- > 0;) {
+      const y = i / 99;
+      const k = 9 * lcos(y * 2);
+      const e = y / 8 - 12;
+      const d = (k * k + e * e) / 79 + 1;
+      const q = 79 - e * lsin(k) + k / d * (8 + 4 * lsin(lsin(d * d + e / 9 - t)));
+      const c = d / 2 - lcos(d * 2) / 5 - t / 16 + (i & 1) * 3;
+      const px = (q * lsin(c) + 200) | 0;
+      const py = ((q + 40) * lcos(c) + 200) | 0;
+
+      if (px >= 0 && px < W && py >= 0 && py < W) {
+        const idx = py * W + px;
+        // Additive: clamp R channel (all equal), same for G, B
+        const v = (buf32[idx] & 0xFF) + 38; // 38 ≈ 96/255 * 100, tuned to match original alpha
+        const bright = v > 255 ? 255 : v;
+        buf32[idx] = 0xFF000000 | (bright * 0x10101);
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  })(last);
+})();
+</script>
+</body>
+</html>
