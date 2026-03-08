@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; }
+  body { background: #090909; display: flex; align-items: center; justify-content: center; width: 100vw; height: 100vh; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="400"></canvas>
+<script>
+(() => {
+  const W = 400;
+  const ctx = document.getElementById('c').getContext('2d', { alpha: false });
+  const LUT = 65536, MASK = LUT - 1, SCALE = LUT / (Math.PI * 2);
+  const sinLUT = new Float32Array(LUT), cosLUT = new Float32Array(LUT);
+  for (let i = 0; i < LUT; i++) {
+    sinLUT[i] = Math.sin(i / LUT * Math.PI * 2);
+    cosLUT[i] = Math.cos(i / LUT * Math.PI * 2);
+  }
+  const lsin = v => sinLUT[((v * SCALE | 0) % LUT + LUT) & MASK];
+  const lcos = v => cosLUT[((v * SCALE | 0) % LUT + LUT) & MASK];
+
+  const imgData = ctx.createImageData(W, W);
+  const buf32 = new Uint32Array(imgData.data.buffer);
+  const BG = 0xFF090909, PT = 0x80FFFFFF;
+
+  let t = 0, last = performance.now();
+  const RATE = (Math.PI / 30) * 60;
+
+  (function draw(now) {
+    requestAnimationFrame(draw);
+    t += RATE * ((now - last) / 1000);
+    last = now;
+    buf32.fill(BG);
+    for (let i = 20000; i-- > 0;) {
+      const y = i * 0.001;
+      const k = (5 + lsin(y)) * lcos(i * 2);
+      const e = y / 6 - 13;
+      const d = Math.sqrt(k * k + e * e) - 3;
+      const q = 3 * lsin(k * 2) + k / 19 * y * (e + d / 3 * lsin(e - d * 4 + t)) + 99;
+      const c = d - t * 0.25 + (i & 1) * 8;
+      const px = (q * lsin(c) * lcos(c / 4 + e / 3) + 200) | 0;
+      const py = (q * d / 9  * lcos(c / 2 + 7)      + 200) | 0;
+      if (px >= 0 && px < W && py >= 0 && py < W) buf32[py * W + px] = PT;
+    }
+    ctx.putImageData(imgData, 0, 0);
+  })(last);
+})();
+</script>
+</body>
+</html>
